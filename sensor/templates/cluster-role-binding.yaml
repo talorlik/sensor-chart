@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.names.clusterRoleBindingName }}
+  # "namespace" omitted since ClusterRoleBindings are not namespaced
+subjects:
+- kind: ServiceAccount
+  name: {{ include "sensor.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ .Values.names.clusterRoleName }}
+  apiGroup: rbac.authorization.k8s.io

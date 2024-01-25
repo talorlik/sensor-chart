@@ -1,0 +1,48 @@
+name: k8s sensor
+on:
+  workflow_run:
+    workflows: ["sensor"]
+    types:
+        - completed
+  pull_request:
+    # paths:
+    # - "terraform/environments/dev/k8s-app/**"
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      imageName:
+        description: 'Image Name'
+        required: true
+        default: 'master-sensor-image'
+      imageTag:
+        description: 'Image Tag'
+        required: true
+        default: 'latest'
+      logLevel:
+        description: 'Log Level'
+        required: true
+        default: 'info'
+jobs:
+  Provision:
+    runs-on: k8s-sensor
+    steps:
+# Copy branch from Sensor repo to a master folder
+    - name: Checkout Sensor Chart
+      uses: actions/checkout@v2
+      with:
+        repository: talorlik/sensor-chart
+        token: ${{ secrets.GH_PAT }}
+        ref: main
+        path: master
+
+    - name: Connect to the cluster
+      run: aws eks --region eu-west-2 update-kubeconfig --name <replace-with-cluster-name>
+
+# Running helmchart from master/KubeSensor/sensor-chart
+    - name: Deploy Kube Sensor
+      working-directory: master/KubeSensor/sensor-chart
+      run: |
+        aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin <replace-with-aws-account-id>.dkr.ecr.eu-west-1.amazonaws.com
+        kubectl create namespace sensor --dry-run=client -o yaml | kubectl apply -f -
+        kubectl create secret docker-registry my-regcred --save-config --dry-run=client --from-file=.dockerconfigjson=$HOME/.docker/config.json -n sensor -o yaml | kubectl apply -f -
+        helm upgrade my-daemonset . --install --set image.repository="${{ github.event.inputs.imageName }}",image.tag="${{ github.event.inputs.imageTag }}",debug.LOGGER="${{ github.event.inputs.logLevel }}"

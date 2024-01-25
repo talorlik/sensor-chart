@@ -1,0 +1,6 @@
+apiVersion: v2
+name: sensor
+description: A Helm chart for Kubernetes Sensor
+type: application
+version: 1.0.0
+appVersion: "1.6.863.1370"

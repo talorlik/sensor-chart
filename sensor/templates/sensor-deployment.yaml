@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: {{ include "sensor.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sensor.labels" . | nindent 4 }}
+    run: {{ include "sensor.fullname" . }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "sensor.selectorLabels" . | nindent 6 }}
+      name: {{ .Values.names.podName }}
+  template:
+    metadata:
+      labels:
+        {{- include "sensor.selectorLabels" . | nindent 8 }}
+        name: {{ .Values.names.podName }}
+    spec:
+      serviceAccountName: {{ include "sensor.serviceAccountName" . }}
+      containers:
+        - name: {{ .Values.names.podName }}
+          # Public
+          # image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
+          # Private
+          image: "{{ .Values.image.awsAccount }}.dkr.ecr.{{ .Values.image.region }}.amazonaws.com/{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          terminationMessagePath: "/var/log/{{ include "sensor.fullname" . }}-termination-log"
+          env:
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ quote $value }}
+            {{- end }}
+      imagePullSecrets:
+        - name: {{ .Values.imagePullSecrets.name }}

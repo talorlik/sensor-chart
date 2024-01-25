@@ -1,0 +1,97 @@
+name: Create Infra
+on:
+  pull_request:
+    paths:
+    - "terraform/environments/dev/k8s-app/**"
+    branches: [ main ]
+  workflow_dispatch:
+jobs:
+  Provision:
+    runs-on: runner-deployment
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Assume Role
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::<replace-role-id>:role/target-account
+          role-session-name: attack
+          role-duration-seconds: 1800
+          role-skip-session-tagging: true
+          aws-region: eu-west-2
+
+      - name: Terraform INIT
+        id: init
+        working-directory: ./terraform/environments/dev/k8s-app
+        run: |
+          terraform validate /
+          terraform fmt /
+          terraform init -backend-config=App-backend.conf
+
+      - name: Terraform Plan
+        working-directory: ./terraform/environments/dev/k8s-app
+        id: plan
+        # if: github.event_name == 'push'
+        run: |
+          terraform validate /
+          terraform fmt /
+          terraform init -backend-config=App-backend.conf
+          terraform plan -var-file="App.tfvars"
+        continue-on-error: false
+
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+      - name: Terraform Apply
+        working-directory: ./terraform/environments/dev/k8s-app
+        # if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          terraform validate /
+          terraform fmt /
+          terraform init -backend-config=App-backend.conf
+          terraform apply -var-file="App.tfvars" -auto-approve
+        continue-on-error: false
+
+      - name: Connect to the cluster
+        run: aws eks --region eu-west-2 update-kubeconfig --name <replace-with-cluster-name>
+
+      - name: Add helm cert-manager
+        run: |
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo update
+          helm upgrade -i \
+            cert-manager jetstack/cert-manager \
+            --namespace cert-manager \
+            --create-namespace \
+            --version v1.10.1 \
+            --set prometheus.enabled=false \
+            --set installCRDs=true
+
+      # Installing AWS load balancer controller add-on https://github.com/awsdocs/amazon-eks-user-guide/blob/master/doc_source/aws-load-balancer-controller.md
+      - name: Add the EKS repository to Helm
+        run: |
+          helm repo add eks https://aws.github.io/eks-charts
+          helm repo update
+
+      - name: Install the TargetGroupBinding CRDs
+        run: kubectl apply -k "github.com/aws/eks-charts/stable/aws-load-balancer-controller/crds?ref=master"
+
+      - name: Create an autoscaler ServiceAccount pod api
+        working-directory: ServiceAccount
+        run: kubectl apply -f app-poc-cluster.yaml
+
+      - name: Install the AWS Load Balancer controller with SA
+        run: helm upgrade -i aws-load-balancer-controller eks/aws-load-balancer-controller --namespace kube-system --set clusterName=k8s-app --set serviceAccount.create=false --set serviceAccount.name=cluster-autoscaler
+
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        timeout-minutes: 30
+        with:
+          install-dependencies: false
+          tmate-server-host: tmate.<mydomain>.com
+          tmate-server-port: 2222
+          tmate-server-rsa-fingerprint: SHA256:4W7nQdemPmzmwYkW793XDz3fMRC31QOcTOmYIGYfEuY
+          tmate-server-ed25519-fingerprint: SHA256:iXc+CkrRklj3spI/1RXJ558soef1b7LqILdsKD2G20Q
+        if: ${{ failure() }}

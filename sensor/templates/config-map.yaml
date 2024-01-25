@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.names.configMapName }}
+  namespace: {{ .Release.Namespace }}
+data:
+  cluster-name: {{ .Values.env.SENSOR_CLUSTER_NAME }}
